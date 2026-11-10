@@ -180,7 +180,7 @@ void loop() {
   delay(50);
 }
 
-// ---------------- Ultrasonic function ----------------
+// ---------------- Ultrasonic function ---------------
 
 long getDistance() {
 

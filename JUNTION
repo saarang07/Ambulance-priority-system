@@ -1,0 +1,154 @@
+#include <SPI.h>
+#include <LoRa.h>
+#include <Servo.h>
+
+// ---------------- LoRa pins ----------------
+#define LORA_SS    10
+#define LORA_RST   9
+#define LORA_DIO0  8
+
+// ---------------- Traffic LEDs ----------------
+#define RED_LED    2
+#define GREEN_LED  3
+
+// ---------------- Ultrasonic sensor ----------------
+#define TRIG_PIN   4
+#define ECHO_PIN   5
+
+// ---------------- Servo ----------------
+#define SERVO_PIN  6
+
+Servo barrierServo;
+
+// System state
+bool emergencyMode = false;
+
+void setup() {
+
+  Serial.begin(9600);
+
+  // Traffic LEDs
+  pinMode(RED_LED, OUTPUT);
+  pinMode(GREEN_LED, OUTPUT);
+
+  // Ultrasonic
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  // Servo
+  barrierServo.attach(SERVO_PIN);
+
+  // Initial condition
+  digitalWrite(RED_LED, HIGH);
+  digitalWrite(GREEN_LED, LOW);
+
+  barrierServo.write(0);
+
+  // LoRa
+  LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
+
+  Serial.println("Starting Junction LoRa...");
+
+  if (!LoRa.begin(433E6)) {
+
+    Serial.println("LoRa initialization FAILED!");
+
+    while (true) {
+      delay(1000);
+    }
+  }
+
+  Serial.println("LoRa initialized successfully.");
+  Serial.println("Junction system READY.");
+}
+
+void loop() {
+
+  // Check for LoRa message
+  int packetSize = LoRa.parsePacket();
+
+  if (packetSize) {
+
+    String receivedMessage = "";
+
+    while (LoRa.available()) {
+      receivedMessage += (char)LoRa.read();
+    }
+
+    Serial.print("Received: ");
+    Serial.println(receivedMessage);
+
+    // Check emergency message
+    if (receivedMessage == "AMBULANCE") {
+
+      Serial.println("AMBULANCE DETECTED!");
+
+      emergencyMode = true;
+
+      // Give ambulance priority
+      digitalWrite(RED_LED, LOW);
+      digitalWrite(GREEN_LED, HIGH);
+
+      // Raise barrier
+      barrierServo.write(90);
+
+      Serial.println("GREEN LIGHT - AMBULANCE PRIORITY");
+    }
+  }
+
+  // If emergency mode is active
+  if (emergencyMode) {
+
+    long distance = getDistance();
+
+    Serial.print("Distance: ");
+    Serial.print(distance);
+    Serial.println(" cm");
+
+    // Detect ambulance/vehicle passing
+    if (distance > 0 && distance < 30) {
+
+      Serial.println("Vehicle detected by ultrasonic sensor.");
+
+      delay(3000);
+
+      // Return to normal traffic
+      digitalWrite(GREEN_LED, LOW);
+      digitalWrite(RED_LED, HIGH);
+
+      // Lower barrier
+      barrierServo.write(0);
+
+      emergencyMode = false;
+
+      Serial.println("Normal traffic resumed.");
+
+      delay(1000);
+    }
+  }
+
+  delay(50);
+}
+
+// ---------------- Ultrasonic function ----------------
+
+long getDistance() {
+
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+
+  digitalWrite(TRIG_PIN, LOW);
+
+  long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+
+  if (duration == 0) {
+    return -1;
+  }
+
+  long distance = duration * 0.034 / 2;
+
+  return distance;
+}
